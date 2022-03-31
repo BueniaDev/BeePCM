@@ -1,0 +1,11 @@
+set(YMZ280B_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+set(YMZ280B_SOURCES
+	ymz280b.cpp)
+
+set(YMZ280B_HEADERS
+	ymz280b.h)
+
+add_library(ymz280b STATIC ${YMZ280B_SOURCES} ${YMZ280B_HEADERS})
+target_include_directories(ymz280b PUBLIC
+	${YMZ280B_INCLUDE_DIR})
