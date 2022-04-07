@@ -1,0 +1,11 @@
+set(RF5C68_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+set(RF5C68_SOURCES
+	rf5c68.cpp)
+
+set(RF5C68_HEADERS
+	rf5c68.h)
+
+add_library(rf5c68 STATIC ${RF5C68_SOURCES} ${RF5C68_HEADERS})
+target_include_directories(rf5c68 PUBLIC
+	${RF5C68_INCLUDE_DIR})

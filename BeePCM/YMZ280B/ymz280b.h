@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <cmath>
 #include <array>
+#include <vector>
 using namespace std;
 
 namespace beepcm

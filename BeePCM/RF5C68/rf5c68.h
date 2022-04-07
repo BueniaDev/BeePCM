@@ -16,10 +16,12 @@
     along with BeePCM.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef BEEPCM_SEGAPCM
-#define BEEPCM_SEGAPCM
+#ifndef BEEPCM_RF5C68
+#define BEEPCM_RF5C68
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <algorithm>
 #include <cstdint>
 #include <cmath>
@@ -29,25 +31,21 @@ using namespace std;
 
 namespace beepcm
 {
-    class SegaPCM
+    class RF5C68
     {
 	public:
-	    SegaPCM();
-	    ~SegaPCM();
+	    RF5C68();
+	    ~RF5C68();
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
-	    void set_bank(uint32_t bank);
 	    void init();
-	    void writeROM(uint32_t rom_size, uint32_t data_start, uint32_t data_len, vector<uint8_t> rom_data);
-	    uint8_t readRAM(uint16_t addr);
-	    void writeRAM(uint16_t addr, uint8_t data);
+	    void enable_vgm_hack(bool is_enabled = true);
+	    void writeRAM(int data_start, int data_len, vector<uint8_t> ram_data);
+	    void writemem(uint16_t addr, uint8_t data);
+	    void writereg(uint8_t reg, uint8_t data);
+
 	    void clockchip();
 	    vector<int32_t> get_samples();
-
-	    void writeROM(vector<uint8_t> rom_data)
-	    {
-		writeROM(rom_data.size(), 0, rom_data.size(), rom_data);
-	    }
 
 	private:
 	    template<typename T>
@@ -56,30 +54,38 @@ namespace beepcm
 		return ((reg >> bit) & 1);
 	    }
 
-	    template<typename T>
-	    T setbit(T reg, int bit)
-	    {
-		return (reg | (1 << bit));
-	    }
-
 	    void reset();
 
-	    int bank_shift = 0;
-	    int bank_mask = 0;
+	    struct rf5c68_channel
+	    {
+		uint8_t envelope = 0;
+		uint8_t pan = 0;
+		uint16_t step = 0;
+		uint16_t loop_start = 0;
+		uint8_t start_byte = 0;
+		uint32_t current_addr = 0;
+		array<int32_t, 2> output = {0, 0};
+		bool is_enable = false;
+	    };
 
-	    vector<uint8_t> pcm_rom;
-	    array<uint8_t, 0x800> pcm_ram;
+	    array<rf5c68_channel, 8> rf5c68_channels;
+	    array<uint8_t, 0x10000> rf5c68_ram;
+	    bool rf5c68_enable = false;
 
-	    array<uint8_t, 16> low_addr;
+	    int mem_bank = 0;
+	    int ch_bank = 0;
 
-	    array<array<int16_t, 2>, 16> ch_outputs;
+	    bool is_vgm_hack = false;
 
-	    uint8_t get_reg(int ch, uint8_t offs);
-	    void set_reg(int ch, uint8_t offs, uint8_t data);
+	    uint32_t vgm_base_addr = 0;
+	    uint32_t vgm_cur_addr = 0;
+	    uint32_t vgm_end_addr = 0;
+	    uint16_t vgm_cur_step = 0;
+	    vector<uint8_t> vgm_data;
 
-	    uint8_t fetch_rom(uint32_t addr);
+	    void check_vgm_samples(uint32_t addr, uint16_t speed);
+	    void flush_vgm();
     };
 };
 
-#endif // BEEPCM_SEGAPCM
-
+#endif // BEEPCM_RF5C68
