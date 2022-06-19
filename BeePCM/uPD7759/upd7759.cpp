@@ -195,7 +195,7 @@ namespace beepcm
 	    {
 		uint8_t rom_byte = fetchROM(offset++);
 		is_drq = true;
-		nibbles_left = rom_byte;
+		nibbles_left = (rom_byte + 1);
 		clocks_left = 36;
 		state = NibbleMSN;
 	    }
