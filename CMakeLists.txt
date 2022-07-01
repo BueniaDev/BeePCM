@@ -16,9 +16,10 @@ add_subdirectory(BeePCM/YMZ280B)
 add_subdirectory(BeePCM/RF5C68)
 add_subdirectory(BeePCM/MultiPCM)
 add_subdirectory(BeePCM/uPD7759)
+add_subdirectory(BeePCM/OKIM6295)
 
 add_library(beepcm INTERFACE)
-target_link_libraries(beepcm INTERFACE segapcm ymz280b rf5c68 multipcm upd7759)
+target_link_libraries(beepcm INTERFACE segapcm ymz280b rf5c68 multipcm upd7759 okim6295)
 add_library(libbeepcm ALIAS beepcm)
 
 
