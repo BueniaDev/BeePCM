@@ -16,7 +16,7 @@
     along with BeePCM.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// BeePCM-OKIM6295 (WIP)
+// BeePCM-OKIM6295
 // Chip Name: OKIM6295
 // Chip Used In: Capcom CPS1 hardware (mainly), and possibly others
 //
@@ -28,9 +28,13 @@
 //
 // BueniaDev's Notes:
 // 
-// This core is a huge WIP, and lots of features are currently unimplemented.
-// In addition, please note that some of the core API is in heavy flux at this moment.
-// However, work is being done on both of those fronts, so don't lose hope here!
+// Although basic M6295 support is fully implemented,
+// the following features are still completely unimplemented:
+// Banking support
+// Chip reads
+// NMK112 support
+//
+// However, work is being done on all of those fronts, so don't lose hope here!
 
 #include "okim6295.h"
 using namespace beepcm;
