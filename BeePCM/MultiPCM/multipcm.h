@@ -70,6 +70,9 @@ namespace beepcm
 	    array<uint32_t, 0x400> freq_step_table;
 	    array<array<int32_t, 0x800>, 2> m_pan_table;
 	    array<int32_t, 2> tll_steps;
+	    array<uint32_t, 0x40> attack_steps;
+	    array<uint32_t, 0x40> decay_steps;
+	    array<int32_t, 0x400> volume_table;
 
 	    int chip_bank = 0;
 	    int left_bank = 0;
@@ -78,12 +81,26 @@ namespace beepcm
 	    int value_to_channel(int val);
 	    void writeSlot(int cur_slot, int address, uint8_t data);
 
+	    enum multipcm_env_state : int
+	    {
+		Attack = 0,
+		Decay1 = 1,
+		Decay2 = 2,
+		Release = 3,
+	    };
+
 	    struct multipcm_data
 	    {
 		uint32_t start_addr = 0;
 		uint32_t format = 0;
 		uint16_t loop_addr = 0;
 		uint16_t end_addr = 0;
+		int attack_rate = 0;
+		int decay_rate = 0;
+		int decay2_rate = 0;
+		int decay_level = 0;
+		int release_rate = 0;
+		int key_rate_scale = 0;
 	    };
 
 	    struct multipcm_channel
@@ -99,8 +116,17 @@ namespace beepcm
 		uint16_t sample_index = 0;
 		uint32_t offset = 0;
 		uint32_t format = 0;
+		int panpot = 0;
+		int attack_rate = 0;
+		int decay_rate = 0;
+		int decay2_rate = 0;
+		int decay_level = 0;
+		int release_rate = 0;
 		bool is_playing = false;
 		array<int32_t, 2> output = {0, 0};
+		multipcm_env_state env_state;
+		int32_t env_volume = 0;
+		int32_t final_volume = 0;
 		multipcm_data metadata;
 	    };
 
@@ -108,6 +134,8 @@ namespace beepcm
 
 	    void init_sample(multipcm_channel &channel);
 	    void retrigger_sample(multipcm_channel &channel);
+	    void calc_env_rate(multipcm_channel &channel);
+	    void env_update(multipcm_channel &channel);
 	    uint8_t read_rom(uint32_t addr);
 
 	    vector<uint8_t> multipcm_rom;

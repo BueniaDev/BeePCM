@@ -27,7 +27,13 @@
 //
 // BueniaDev's Notes:
 //
-// TODO: Write up initial notes
+// Though this core is slowly approaching completion, the following features are still
+// completely unimplemented:
+//
+// LFO/Vibrato/Tremolo
+//
+// In addition, the 12-bit linear PCM sound generation has not been thoroughly tested as of yet.
+// However, work will be done on all of those fronts, so don't lose hope here!
 
 #include "multipcm.h"
 using namespace beepcm;
@@ -59,8 +65,44 @@ namespace beepcm
 
 	    for (int pan = 0; pan < 0x10; pan++)
 	    {
-		float pan_left = 1.0;
-		float pan_right = 1.0;
+		float pan_left = 0.0f;
+		float pan_right = 0.0f;
+
+		if (pan == 8)
+		{
+		    pan_left = 0.0f;
+		    pan_right = 0.0f;
+		}
+		else if (pan == 0)
+		{
+		    pan_left = 1.0f;
+		    pan_right = 1.0f;
+		}
+		else if (testbit(pan, 3))
+		{
+		    pan_left = 1.0f;
+		    int32_t inverted_pan = (0x10 - pan);
+		    float pan_vol_db = (float(inverted_pan) * -12.f / 4.f);
+
+		    pan_right = pow(10.f, (pan_vol_db / 20.f));
+
+		    if ((inverted_pan & 0x7) == 7)
+		    {
+			pan_right = 0;
+		    }
+		}
+		else
+		{
+		    pan_right = 1.0f;
+		    float pan_vol_db = (float(pan) * -12.f / 4.f);
+
+		    pan_left = pow(10.f, (pan_vol_db / 20.f));
+
+		    if ((pan & 0x7) == 0x7)
+		    {
+			pan_left = 0;
+		    }
+		}
 
 		int pan_table_offs = ((pan << 7) | level);
 		m_pan_table[0][pan_table_offs] = int32_t(float(1 << 12) * (pan_left * total_level));
@@ -71,6 +113,47 @@ namespace beepcm
 	float numerator_tll = float(0x80 << 12);
 	tll_steps[0] = (-numerator_tll / (78.2f * 44100.f / 1000.f)); // Lower TLL
 	tll_steps[1] = (numerator_tll / (78.2f * 2 * 44100.f / 1000.f)); // Raise TLL
+
+	array<double, 64> base_times = 
+	{
+	    0,       0,       0,       0,
+	    6222.95, 4978.37, 4148.66, 3556.01,
+	    3111.47, 2489.21, 2074.33, 1778.00,
+	    1555.74, 1244.63, 1037.19, 889.02,
+	    777.87,  622.31,  518.59,  444.54,
+	    388.93,  311.16,  259.32,  222.27,
+	    194.47,  155.60,  129.66,  111.16,
+	    97.23,   77.82,   64.85,   55.60,
+	    48.62,   38.91,   32.43,   27.80,
+	    24.31,   19.46,   16.24,   13.92,
+	    12.15,   9.75,    8.12,    6.98,
+	    6.08,    4.90,    4.08,    3.49,
+	    3.04,    2.49,    2.13,    1.90,
+	    1.72,    1.41,    1.18,    1.04,
+	    0.91,    0.73,    0.59,    0.50,
+	    0.45,    0.45,    0.45,    0.45
+	};
+
+	for (int i = 4 ; i < 0x40; i++)
+	{
+	    attack_steps[i] = float(0x400 << 16) / float(base_times[i] * 44100.f / 1000.f);
+	    decay_steps[i] = float(0x400 << 16) / float(base_times[i] * 14.32833 * 44100.f / 1000.f);
+	}
+
+	for (int i = 0; i < 4; i++)
+	{
+	    attack_steps[i] = 0;
+	    decay_steps[i] = 0;
+	}
+
+	attack_steps[0x3F] = (0x400 << 16);
+
+	for (int i = 0; i < 0x400; i++)
+	{
+	    float db = -(96.f - (96.f * float(i) / float(0x400)));
+	    float exp_volume = powf(10.f, (db / 20.f));
+	    volume_table[i] = uint32_t(float(1 << 12) * exp_volume);
+	}
     }
 
     int MultiPCM::value_to_channel(int val)
@@ -99,6 +182,13 @@ namespace beepcm
 	channel.metadata.start_addr = (start_addr & 0x3FFFFF);
 	channel.metadata.loop_addr = ((read_rom(address + 3) << 8) | read_rom(address + 4));
 	channel.metadata.end_addr = (0xFFFF - ((read_rom(address + 5) << 8) | read_rom(address + 6)));
+
+	channel.metadata.attack_rate = (read_rom(address + 8) >> 4);
+	channel.metadata.decay_rate = (read_rom(address + 8) & 0xF);
+	channel.metadata.decay2_rate = (read_rom(address + 9) & 0xF);
+	channel.metadata.decay_level = (read_rom(address + 9) >> 4);
+	channel.metadata.release_rate = (read_rom(address + 10) & 0xF);
+	channel.metadata.key_rate_scale = (read_rom(address + 10) >> 4);
     }
 
     void MultiPCM::retrigger_sample(multipcm_channel &channel)
@@ -112,6 +202,122 @@ namespace beepcm
 	    channel.base_addr &= 0xFFFFF;
 	    channel.base_addr |= chip_bank;
 	}
+
+	calc_env_rate(channel);
+	channel.env_state = multipcm_env_state::Attack;
+	channel.env_volume = 0;
+    }
+
+    void MultiPCM::env_update(multipcm_channel &channel)
+    {
+	switch (channel.env_state)
+	{
+	    case multipcm_env_state::Attack:
+	    {
+		channel.env_volume += channel.attack_rate;
+
+		if (channel.env_volume >= (0x3FF << 16))
+		{
+		    channel.env_state = multipcm_env_state::Decay1;
+
+		    if (channel.decay_rate >= (0x400 << 16))
+		    {
+			channel.env_state = multipcm_env_state::Decay2;
+		    }
+
+		    channel.env_volume = (0x3FF << 16);
+		}
+
+		channel.final_volume = volume_table[channel.env_volume >> 16];
+	    }
+	    break;
+	    case multipcm_env_state::Decay1:
+	    {
+		channel.env_volume -= channel.decay_rate;
+
+		if (channel.env_volume <= 0)
+		{
+		    channel.env_volume = 0;
+		}
+
+		if ((channel.env_volume >> 16) <= (channel.decay_level << 6))
+		{
+		    channel.env_state = multipcm_env_state::Decay2;
+		}
+
+		channel.final_volume = volume_table[channel.env_volume >> 16];
+	    }
+	    break;
+	    case multipcm_env_state::Decay2:
+	    {
+		channel.env_volume -= channel.decay2_rate;
+
+		if (channel.env_volume <= 0)
+		{
+		    channel.env_volume = 0;
+		}
+
+		channel.final_volume = volume_table[channel.env_volume >> 16];
+	    }
+	    break;
+	    case multipcm_env_state::Release:
+	    {
+		channel.env_volume -= channel.release_rate;
+
+		if (channel.env_volume <= 0)
+		{
+		    channel.env_volume = 0;
+		    channel.is_playing = false;
+		}
+
+		channel.final_volume = volume_table[channel.env_volume >> 16];
+	    }
+	    break;
+	    default:
+	    {
+		channel.final_volume = (1 << 12);
+	    }
+	    break;
+	}
+    }
+
+    void MultiPCM::calc_env_rate(multipcm_channel &channel)
+    {
+	int32_t octave = channel.octave;
+
+	if (testbit(octave, 3))
+	{
+	    octave -= 16;
+	}
+
+	int32_t rate = 0;
+
+	if (channel.metadata.key_rate_scale != 0xF)
+	{
+	    rate = (((octave + channel.metadata.key_rate_scale) * 2 + (testbit(channel.octave, 3))));
+	}
+
+	auto get_rate = [&](array<uint32_t, 0x40> steps, uint32_t rate, uint32_t val) -> uint32_t
+	{
+	    switch (val)
+	    {
+		case 0x0: return steps[0]; break;
+		case 0xF: return steps[0x3F]; break;
+		default:
+		{
+		    int p_rate = (4 * val) + rate;
+		    int env_rate = min(0x3F, p_rate);
+		    return steps[env_rate];
+		}
+		break;
+	    }
+	};
+
+	channel.attack_rate = get_rate(attack_steps, rate, channel.metadata.attack_rate);
+	channel.decay_rate = get_rate(decay_steps, rate, channel.metadata.decay_rate);
+	channel.decay2_rate = get_rate(decay_steps, rate, channel.metadata.decay2_rate);
+	channel.release_rate = get_rate(decay_steps, rate, channel.metadata.release_rate);
+	channel.decay_level = (0xF - channel.metadata.decay_level);
     }
 
     void MultiPCM::writeSlot(int cur_slot, int address, uint8_t data)
@@ -127,7 +333,7 @@ namespace beepcm
 	{
 	    case 0:
 	    {
-		cout << "Setting panpot of channel " << dec << cur_slot << endl;
+		channel.panpot = (data >> 4);
 	    }
 	    break;
 	    case 1:
@@ -203,14 +409,20 @@ namespace beepcm
 		{
 		    if (channel.is_playing)
 		    {
-			channel.is_playing = false;
+			if (channel.metadata.release_rate != 0xF)
+			{
+			    channel.env_state = multipcm_env_state::Release;
+			}
+			else
+			{
+			    channel.is_playing = false;
+			}
 		    }
 		}
 	    }
 	    break;
 	    case 5:
 	    {
-		cout << "Setting total level of channel " << dec << cur_slot << endl;
 		channel.total_level = ((data >> 1) & 0x7F);
 
 		if (!testbit(data, 0))
@@ -260,6 +472,13 @@ namespace beepcm
 	chip_bank = 0;
 	left_bank = 0;
 	right_bank = 0;
+
+	for (auto &channel : channels)
+	{
+	    channel.env_volume = 0;
+	    channel.env_state = multipcm_env_state::Attack;
+	    channel.is_playing = false;
+	}
     }
 
     void MultiPCM::writeBankVGM(uint8_t offset, uint16_t data)
@@ -338,11 +557,12 @@ namespace beepcm
 
     void MultiPCM::clockchip()
     {
-	for (auto &channel : channels)
+	for (int i = 0; i < 28; i++)
 	{
+	    auto &channel = channels[i];
 	    if (channel.is_playing)
 	    {
-		uint32_t volume = ((channel.tll_val >> 12));
+		uint32_t volume = ((channel.tll_val >> 12) | (channel.panpot << 7));
 		uint32_t spos = (channel.offset >> 12);
 		uint32_t step = channel.step;
 		int32_t csample = 0;
@@ -350,9 +570,39 @@ namespace beepcm
 
 		if (testbit(channel.format, 3))
 		{
-		    // TODO: 12-bit linear
-		    cout << "12-bit linear" << endl;
-		    continue;
+		    uint32_t addr = (channel.base_addr + (spos >> 2) * 6);
+
+		    switch (spos & 3)
+		    {
+			case 0:
+			{
+			    // ab.c .... ....
+			    int16_t w0 = ((read_rom(addr) << 8) | ((read_rom(addr + 1) & 0xF) << 4));
+			    csample = w0;
+			}
+			break;
+			case 1:
+			{
+			    // ..C. AB.. ....
+			    int16_t w0 = ((read_rom(addr + 2) << 8) | (read_rom(addr + 1) & 0xF0));
+			    csample = w0;
+			}
+			break;
+			case 2:
+			{
+			    // .... ..ab .c..
+			    int16_t w0 = ((read_rom(addr + 3) << 8) | ((read_rom(addr + 4) & 0xF) << 4));
+			    csample = w0;
+			}
+			break;
+			case 3:
+			{
+			    // .... .... C.AB
+			    int16_t w0 = ((read_rom(addr + 5) << 8) | (read_rom(addr + 4) & 0xF0));
+			    csample = w0;
+			}
+			break;
+		    }
 		}
 		else
 		{
@@ -377,7 +627,8 @@ namespace beepcm
 		    channel.tll_val += channel.tll_step;
 		}
 
-		sample = ((sample * 4052) >> 10);
+		env_update(channel);
+		sample = ((sample * channel.final_volume) >> 10);
 
 		channel.output[0] = ((sample * m_pan_table[0][volume]) >> 12);
 		channel.output[1] = ((sample * m_pan_table[1][volume]) >> 12);
